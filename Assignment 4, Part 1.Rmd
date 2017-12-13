@@ -1,0 +1,379 @@
+---
+title: "Assignment 4, Part 1"
+author: "Blanka Zana & Riley Anthony"
+date: "12 December 2017"
+output: html_document
+---
+
+```{r}
+
+setwd("C:/Users/tamec/Desktop/Programming/Git/ExpMeth Assignment 7 Data/")
+
+library(pacman)
+p_load(dplyr, groupdata2, ggplot2, stringr, crqa, plyr, gridExtra, lmerTest)
+
+folder = "C:/Users/tamec/Desktop/Programming/Git/ExpMeth Assignment 7 Data/A4P1Data/"
+fileList = list.files(path=folder, pattern="*.csv")
+
+
+p1 = read.csv(paste(folder, fileList[1], sep = ""))
+
+
+##Question 1
+
+#Scale
+p1$temp = 1 #to make the rescale work
+rescalelist = c("Resp1", "Resp2", "ECG1", "ECG2", "HR1", "HR2") #list of variables which should be rescaled
+
+p1_rescaled = p1[, colnames(p1) %in% rescalelist] %>% #select rows to rescale 
+  lapply(. , function(x) scale(x, center = mean(x, na.rm =T), scale = sd(x, na.rm = T))) %>% 
+  cbind(. , p1[,! colnames(p1) %in% rescalelist]) #bind with remaining rows
+
+#Downsample
+p1_rescaled = p1_rescaled %>% group(n= 100, method= 'greedy') %>% #group in groups of 100
+  summarise_all(.,funs(mean(., na.rm = TRUE))) #take the mean of the group
+
+p1_rescaled = subset(p1_rescaled, select=-c(temp, .groups)) #remove the temp used for rescaling
+
+#remove outlier function
+removeOuts = function(ts, threshold){
+  ts[ts > (mean(ts,na.rm=T) + (threshold*sd(ts,na.rm=T))) | 
+       ts < (mean(ts,na.rm=T) - (threshold*sd(ts,na.rm=T)))] = mean(ts,na.rm=T)
+return(ts)
+}
+#sd = 1.5
+
+p1_rescaled$Resp2.1 = removeOuts(p1_rescaled$Resp2, 1.5)
+p1_rescaled$HR2.1 = removeOuts(p1_rescaled$HR2, 1.5)
+
+plot1 = ggplot2::ggplot(p1_rescaled, aes(x = time, y = Resp2)) + 
+  geom_line(color = "red") +   geom_line(aes(x = time, y = HR2), color = "green")
+plot1
+
+plot2 = ggplot2::ggplot(p1_rescaled, aes(x = time, y = Resp2.1)) + 
+  geom_line(color = "red") +   geom_line(aes(x = time, y = HR2.1), color = "green")
+plot2
+
+plot3 = ggplot2::ggplot(p1_rescaled, aes(x = time, y = Resp1)) + 
+  geom_line(color = "red") +   geom_line(aes(x = time, y = HR1), color = "green")
+plot3
+
+
+#Scale function 
+Q_scale = function(df, rescalelist = NULL){
+  if (is.null(rescalelist) == T){ #if rescalelist is not specified rescale all the variables
+    rescalelist = colnames(df)
+  }
+  df$temp = 1 #to make the rescale work all the time (cbind does not work if there isn't )
+  df$temp1 = 1
+  scaled_df = df[, colnames(df) %in% rescalelist] %>% #select rows to rescale 
+    lapply(. , function(x) scale(x, center = mean(x, na.rm =T), scale = sd(x, na.rm = T))) %>% 
+    cbind(. , df[,! colnames(df) %in% rescalelist]) #bind with remaining rows
+  scaled_df = subset(scaled_df, select=-c(temp, temp1))
+  return(scaled_df)
+}
+
+#Downsample function
+downsample = function(df){
+  downsampled_df = df %>% group(n= 100, method= 'greedy') %>% #group in groups of 100
+    summarise_all(funs(mean(., na.rm = TRUE))) #take the mean of the group
+    downsampled_df = subset(downsampled_df, select=-c(.groups))
+  return(downsampled_df)
+}
+
+#remove outlier function
+Q_removeOuts = function(df, threshold, rm_list = NULL){
+  if (is.null(rm_list) == T){ #if rm_list is not specified rescale all the variables
+    rm_list = colnames(df)
+  }
+  df$temp = 1 #to make the rescale work all the time (cbind won't work without this)
+  df$temp1 = 1
+  noOutlier_df = df[, colnames(df) %in% rm_list] %>% #select rows to remove outliers from 
+    lapply(. , function(x) removeOuts(ts = x, threshold = threshold)) %>% 
+    cbind(. , df[,! colnames(df) %in% rm_list])
+  noOutlier_df = subset(noOutlier_df, select=-c(temp, temp1))
+  return(noOutlier_df)
+}
+
+for (file in fileList){
+  #loading the data and setting a running nr
+  temp = read.csv(paste(folder, file, sep = ""))
+  n = match(file, fileList) #this is the file number in the list - basically equal to n+1
+  
+  temp = dplyr::select(temp, Resp1, Resp2, HR1, HR2, time)
+  
+  #scaling, downsampling and remove outliers
+  temp = Q_removeOuts(temp, threshold = 1.5, rm_list = c("Resp1", "Resp2", "ECG1", "ECG2", "HR1", "HR2"))
+  temp = downsample(temp)
+  temp = Q_scale(temp, rescalelist = c("Resp1", "Resp2", "ECG1", "ECG2", "HR1", "HR2"))
+
+  
+  
+  #extracting features from filename
+  temp$group = str_extract(str_extract(file, "G\\d+"), "\\d+")
+  temp$trial = str_extract(str_extract(file, "T\\d"), "\\d")
+  temp$studynr = str_extract(str_extract(file, "Study\\d+"), "\\d+")
+  temp$condition = gsub("Study_G_T_","", gsub("\\d","", gsub(".csv", "", file)))
+  temp$n = n
+
+  
+
+  
+  #saving result in df
+  if (n == 1){ #if it is the first make the df
+  all_dat = temp
+  } else { #else append to the df
+    all_dat = rbind(all_dat, temp)
+  }
+  
+  #making plots 
+  plot_p1 = ggplot2::ggplot(temp, aes(x = time, y = Resp1)) + #a plot for participant 1
+    geom_line(color = "red") +   geom_line(aes(x = time, y = HR1), color = "green")
+  plot_p2 = ggplot2::ggplot(temp, aes(x = time, y = Resp2)) + #a plot for participant 2
+    geom_line(color = "red") +   geom_line(aes(x = time, y = HR2), color = "green")
+
+    #saving plot
+  assign(paste("plot", n + 0.1, sep = ""), plot_p1) #a plot for the first participant (e.g. plot1.1, plot2.1 etc.)
+  assign(paste("plot", n + 0.2, sep = ""), plot_p2) #a plot for the second participant (e.g. plot1.2, plot2.2 etc.)
+}
+
+#Eyeballing coordination - marking problematic participants
+gridExtra::grid.arrange(plot1.1, plot1.2) #p1
+gridExtra::grid.arrange(plot2.1, plot2.2) #p1
+gridExtra::grid.arrange(plot3.1, plot3.2) 
+gridExtra::grid.arrange(plot4.1, plot4.2) #p2
+gridExtra::grid.arrange(plot5.1, plot5.2) #p2
+gridExtra::grid.arrange(plot6.1, plot6.2) 
+gridExtra::grid.arrange(plot7.1, plot7.2) 
+gridExtra::grid.arrange(plot8.1, plot8.2) 
+gridExtra::grid.arrange(plot9.1, plot9.2) 
+gridExtra::grid.arrange(plot10.1, plot10.2) 
+gridExtra::grid.arrange(plot11.1, plot11.2)
+gridExtra::grid.arrange(plot12.1, plot12.2) 
+gridExtra::grid.arrange(plot13.1, plot13.2)
+gridExtra::grid.arrange(plot14.1, plot14.2)
+gridExtra::grid.arrange(plot15.1, plot15.2) 
+gridExtra::grid.arrange(plot16.1, plot16.2)
+gridExtra::grid.arrange(plot17.1, plot17.2) 
+gridExtra::grid.arrange(plot18.1, plot18.2) 
+gridExtra::grid.arrange(plot19.1, plot19.2)
+gridExtra::grid.arrange(plot20.1, plot20.2)
+gridExtra::grid.arrange(plot21.1, plot21.2) 
+gridExtra::grid.arrange(plot22.1, plot22.2)
+gridExtra::grid.arrange(plot23.1, plot23.2)
+gridExtra::grid.arrange(plot24.1, plot24.2)
+gridExtra::grid.arrange(plot25.1, plot25.2)
+gridExtra::grid.arrange(plot26.1, plot26.2)
+gridExtra::grid.arrange(plot27.1, plot27.2)
+gridExtra::grid.arrange(plot28.1, plot28.2) 
+gridExtra::grid.arrange(plot29.1, plot29.2)
+gridExtra::grid.arrange(plot30.1, plot30.2)
+
+#removing all the bad data
+all_dat = subset(all_dat, !(n %in% c(1, 2, 4, 5)))
+removedFiles = c(fileList[1:2], fileList[4:5])
+
+
+#extract optimal parameters
+opt_par_extractor = function(dataset, t1, t2, n = NA){ #function to find the optimal parameters
+  par = list(lgM =  50, steps = seq(1, 6, 1),  radiusspan = 100,  radiussample = 40, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10,  typeami = "mindip")
+  opt_param = NULL
+  t1 = dplyr::select_(dataset, t1)
+  t2 = dplyr::select_(dataset, t2)
+  opt_param = try(optimizeParam(t1, t2, par, min.rec = 3, max.rec = 4))
+  if (length(opt_param) > 1) {
+    result_df = data.frame(opt_param[1], opt_param[2], opt_param[3], n = n) 
+    } else {
+    result_df = data.frame(radius = NA, emddim = NA, delay = NA, n = n)
+    }
+  return(result_df)
+}
+
+#extracting optimal parameters from data
+for (i in 1:length(unique(all_dat$n))){
+  subset_dat = subset(all_dat, n == unique(all_dat$n)[i])
+  result_resp = opt_par_extractor(subset_dat, "Resp1", "Resp2", n = unique(all_dat$n)[i])
+  result_HR = opt_par_extractor(subset_dat, "HR1", "HR2", n = unique(all_dat$n)[i])
+  result_Resp = plyr::rename(result_resp, c("radius"="radius_Resp", "emddim"="emddim_Resp", "delay"="delay_Resp"))
+  result_HR = plyr::rename(result_HR, c("radius"="radius_HR", "emddim"="emddim_HR", "delay"="delay_HR"))
+  if (i == 1){
+    opt_par_df = cbind(result_Resp, result_HR) 
+  } else {
+    opt_par_df = rbind(opt_par_df, cbind(result_Resp, result_HR))
+  }
+}
+
+#making df with optimal parameters
+opt_df = subset(opt_par_df, select=-c(n))
+opt_df = subset(opt_df, select=-c(n))
+opt_df = opt_df %>% summarise_all(funs(median(., na.rm = TRUE))) 
+
+
+rqa_extractor = function(dataset = NULL, t1, t2, embed = embed, delay = delay, radius = radius,  n = NA){ #making a function which applied the optimal parameters and then saves the rqa results
+  if (is.null(dataset) == F){ #if a dataset is specified then take the values from the dataset otherwise use the specified values
+    t1 = dplyr::select_(dataset, t1)
+    t2 = dplyr::select_(dataset, t2)
+  }
+  result = try(crqa(t1, t2, embed = embed, delay = delay, radius = radius, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE))
+  if (length(result) > 1){
+    results_df = data.frame(RR = result[1], DET = result[2], NRLINE = result[3], 
+               maxL = result[4], L = result[5], ENTR = result[6],
+               rENTR = result[7], LAM = result[8], TT = result[9], n = n)
+    #RR = percentage of black dots (also called REC), DET = how likely is it the next black dot is black (# of recurrences/total_observations), L = The average length of lines, maxL = the longest diagonal line (also called MDL), ENTR = entropy, TT = average length of vertical lines
+  } else {
+    results_df = data.frame(RR = NA, DET = NA, NRLINE = NA, 
+               maxL = NA, L = NA, ENTR = NA,
+               rENTR = NA, LAM = NA, TT = NA, n = n)    
+  }
+  return(results_df)
+}
+
+#remove all selfpaced conditions
+all_dat = subset(all_dat, condition != "SelfPaced")
+
+
+#this is all the natural pairs
+for (i in 1:length(unique(all_dat$n))){
+  subset_dat = subset(all_dat, n == unique(all_dat$n)[i])
+  result_Resp = rqa_extractor(subset_dat, "Resp1", "Resp2", embed = opt_df$emddim_Resp, 
+                              delay = opt_df$delay_Resp, radius = opt_df$radius_Resp, n = unique(all_dat$n)[i])
+  result_HR = rqa_extractor(subset_dat, "HR1", "HR2", embed = opt_df$emddim_HR, 
+                                delay = opt_df$delay_HR, radius = opt_df$radius_HR, n = unique(all_dat$n)[i])
+  colnames(result_Resp) = paste("Resp", colnames(result_Resp), sep = "_")
+  colnames(result_HR) = paste("HR", colnames(result_HR), sep = "_")
+  temp = cbind(result_Resp, result_HR)
+  temp$condition = unique(subset_dat$condition)
+  temp$group = unique(subset_dat$group)
+  if (i == 1){
+    realPair_rqa = temp
+  } else {
+    realPair_rqa = rbind(realPair_rqa, temp)
+  }
+}
+
+```
+
+```{r}
+##Question 2
+
+all_dat$group = as.factor(all_dat$group)
+
+i = 1 #Loop for surrogate pairs 
+for (g in seq(unique(all_dat$group))){ #loop through all the groups 
+  g1 = unique(all_dat$group)[g]
+  non_g1 = unique(all_dat$group)[unique(all_dat$group)!= g1] #a list of groups which does not include g1
+  g2 = sample(non_g1)[1] #randomly select a group which is in the non_g1 vector
+  print(g1)
+  for (c in unique(all_dat$condition)){ #looping through conditions 
+    temp1 = subset(all_dat, group == g1 & condition == c) #e.g. the first group in condition 'turntaking
+    temp2 = subset(all_dat, group == g2 & condition == c) #e.g. the second group in condition 'turntaking
+    
+      #doing rqa
+    result_Resp = rqa_extractor(t1 = temp1$Resp1, t2 = temp2$Resp2, embed = opt_df$emddim_Resp, 
+                                delay = opt_df$delay_Resp, radius = opt_df$radius_Resp)
+    result_HR = rqa_extractor(t1 = temp1$HR1, t2 = temp2$HR2, embed = opt_df$emddim_HR, 
+                                delay = opt_df$delay_HR, radius = opt_df$radius_HR)
+    colnames(result_Resp) = paste("Resp", colnames(result_Resp), sep = "_")
+    colnames(result_HR) = paste("HR", colnames(result_HR), sep = "_")
+    temp = cbind(result_Resp, result_HR)
+    temp$condition = c
+    temp$group1 = g1
+    temp$group2 = g2
+    if (i == 1){ #create df
+      surPair_rqa = temp
+      i = 2 #if you have already done this then don't do it again
+    } else { #append to df
+      surPair_rqa = rbind(surPair_rqa, temp)
+    }
+  print(c)
+  }
+}
+
+
+#loop for shuffled pairs
+for (i in 1:length(unique(all_dat$n))){
+  subset_dat = subset(all_dat, n == unique(all_dat$n)[i])
+  #shuffled_dat = dplyr::select(subset_dat, Resp1, Resp2, HR1, HR2) %>% summarise_all(. ,funs(base::sample(.)))
+  shuffled_dat = as.data.frame(dplyr::select(subset_dat, Resp1, Resp2, HR1, HR2) %>%  sapply(., function(x) sample(x)))
+  
+    #doing rqa
+  result_Resp = rqa_extractor(shuffled_dat, t1 = "Resp1", t2 = "Resp2", embed = opt_df$emddim_Resp, 
+                              delay = opt_df$delay_Resp, radius = opt_df$radius_Resp, n = unique(all_dat$n)[i])
+  result_HR = rqa_extractor(shuffled_dat, "HR1", "HR2", embed = opt_df$emddim_HR, 
+                                delay = opt_df$delay_HR, radius = opt_df$radius_HR, n = unique(all_dat$n)[i])
+  colnames(result_Resp) = paste("Resp", colnames(result_Resp), sep = "_")
+  colnames(result_HR) = paste("HR", colnames(result_HR), sep = "_")
+  temp = cbind(result_Resp, result_HR)
+  temp$condition = unique(subset_dat$condition)
+  temp$group = unique(subset_dat$group)
+  if (i == 1){
+    shuffledPair_rqa = temp
+  } else {
+    shuffledPair_rqa = rbind(shuffledPair_rqa, temp)
+  }
+}
+
+shuffledPair_rqa$pairing = "shuffledPair"
+surPair_rqa1 = select(surPair_rqa, -c(group1, group2))
+surPair_rqa1$pairing = "surPair"
+surPair_rqa1$group = surPair_rqa$group1
+realPair_rqa$pairing = "realPair"
+rqa_df = rbind(shuffledPair_rqa, surPair_rqa1, realPair_rqa)
+
+
+
+
+  #Heartrate (HR)
+#RR for HR: pairing (Shuffled) was significant
+mdl1.1 = lmer(HR_RR ~ pairing+condition + (1 | group), rqa_df, REML = F)
+summary(mdl1.1)
+#L for HR: pairing (Shuffled) was significant
+mdl1.2 = lmer(HR_L ~ pairing+condition + (1 | group), rqa_df, REML = F)
+summary(mdl1.2)
+#TT for HR: pairing (Shuffled) and condition (turntaking) approaches significance
+mdl1.3 = lmer(HR_TT ~ pairing+condition + (1 | group), rqa_df, REML = F)
+summary(mdl1.3)
+
+  #Respiration (Resp)
+#RR for Resp: pairing (Shuffled) was significant and condition (turntaking) was approaching significance
+mdl2.10 = lmer(Resp_RR ~ pairing+condition + (1 | group), rqa_df, REML = F)
+summary(mdl2.10)
+#L for Resp: pairing (shuffled) was significant and condition (sync) was also significant
+mdl2.2 = lmer(Resp_L ~ pairing+condition + (1 | group), rqa_df, REML = F)
+summary(mdl2.2)
+#TT for Resp: pairing (Shuffled) and condition (synchronous) was also significant
+mdl2.3 = lmer(Resp_TT ~ pairing+condition + (1 | group), rqa_df, REML = F)
+summary(mdl2.3)
+
+
+```
+
+```{r}
+
+##Question 3
+
+#Heartrate (HR)
+#RR for HR: pairing (Shuffled) was significant
+mdl3.1 = lmer(HR_RR ~ condition + (1 | group), realPair_rqa, REML = F)
+summary(mdl3.1)
+#L for HR: pairing (Shuffled) was significant
+mdl3.2 = lmer(HR_L ~ condition + (1 | group), realPair_rqa, REML = F)
+summary(mdl3.2)
+#TT for HR: pairing (Shuffled) and condition turntaking significant
+mdl3.3 = lmer(HR_TT ~ condition + (1 | group), realPair_rqa, REML = F)
+summary(mdl3.3)
+
+  #Respiration (Resp)
+#RR for Resp: pairing (Shuffled and sur) and condition (turntaking) was significant
+mdl4.1 = lmer(Resp_RR ~ condition + (1 | group), realPair_rqa, REML = F)
+summary(mdl4.1)
+#L for Resp: None was significant
+mdl4.2 = lmer(Resp_L ~ condition + (1 | group), realPair_rqa, REML = F)
+summary(mdl4.2)
+#TT for Resp: pairing (Shuffled) and condition (synchronous) was significant
+mdl4.3 = lmer(Resp_TT ~ condition + (1 | group), realPair_rqa, REML = F)
+summary(mdl4.3)
+
+
+```
+

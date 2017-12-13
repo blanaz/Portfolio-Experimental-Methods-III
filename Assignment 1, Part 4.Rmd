@@ -1,0 +1,205 @@
+---
+title: "Assignment 1, Part 4"
+author: "Blanka Zana & Riley Anthony"
+date: "12 December 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Welcome to the fourth exciting part of the Language Development in ASD exercise
+
+In this exercise we will assess how many participants we would need to adequately replicate our findings (ensuring our sample size is adequate, our alpha at 0.05 and our beta at 0.8).
+
+### Exercise 1
+
+How much power does your study have (if your model estimates are quite right)?
+- [GitHub]Load your dataset, fit your favorite model, assess power for your main effects and interactions of interest.
+- Report the power analysis and comment on what you can (or cannot) use its estimates for.
+
+```{r}
+setwd("~/dánia/Study/Semeser III/ExpMeth III/Ass 4")
+library(dplyr)
+library(lme4)
+library(ggplot2)
+library(lmtest)
+library(pacman)
+library(nlme)
+library(lmerTest)
+p_load(MuMIn,stats,pcaMethods,simr,MASS)
+
+
+
+```
+
+```{r}
+
+
+date=read.csv("df.csv")
+date = na.omit(date)
+
+
+best=lmer(CHI_MLU~MOT_MLU+Diagnosis+ADOS + (1+Visit|ID), date, REML = F)
+summary(best)
+r.squaredGLMM(best)
+
+#question: what units are mlu recorded in? what does an effect of 0.23 mean then?
+
+#I've got the power
+pd = powerSim(best,fixed("Diagnosis"),nsim=10)
+pd #80%, confidence intervals (44.35 - 97.48)
+pcpd= powerCurve(best, fixed("Diagnosis"),along="ID", nsim=10)
+summary(pcpd)
+plot(pcpd)
+pcpd
+
+pm = powerSim(best,fixed("MOT_MLU"),nsim=10)
+pm #100%, confidence intervals (69.15 - 100)
+pcpm= powerCurve(best, fixed("MOT_MLU"),along="ID", nsim=10)
+summary(pcpm)
+plot(pcpm)
+pcpm
+
+pa = powerSim(best,fixed("ADOS"),nsim=10)
+pa #100%, confidence intervals 69.15 - 100
+pcpa = powerCurve(best, fixed("ADOS"),along="ID", nsim=10)
+summary(pcpa)
+plot(pcpa)
+pcpa
+
+```
+
+### Exercise 2
+
+How would you perform a more conservative power analysis?
+- Identify and justify a minimum effect size for each of your relevant effects
+- [GitHub] take the model from exercise 1 and replace the effects with the minimum effect size that you'd accept.
+- [GitHub] assess the power curve by Child.ID, identifying an ideal number of participants to estimate each effect
+- OPTIONAL if your power estimates do not reach an acceptable threshold simulate additional participants and repeat the previous analysis
+- Report the power analysis and comment on what you can (or cannot) use its estimates for.
+
+```{r}
+
+
+########################################################
+##Deciding the lowest acceptable effect size
+fixef(best)["DiagnosisTD"] <- 0.90
+pd2 = powerSim(best,fixed("Diagnosis"),nsim=500)
+pd2
+plot(pd2)
+
+fixef(best)["MOT_MLU"] <- 0.16
+pm2 = powerSim(best,fixed("MOT_MLU"),nsim=500)
+pm2
+
+fixef(best)["ADOS"] <- 0.07
+pa2 = powerSim(best,fixed("ADOS"),nsim=500)
+pa2
+
+##Power curve that shit
+pcv1= powerCurve(best, fixed("MOT_MLU"),along="ID", nsim=10)
+pcv1
+plot(pcv1)
+
+pcv2<-powerCurve(best, fixed("Diagnosis"),along="ID", nsim=10)
+pcv2 #gives 0 values
+plot(pcv2)
+
+pcv2<-powerCurve(best, fixed("ADOS"),along="ID", nsim=10)
+pcv2 #gives 0 values
+plot(pcv2)
+### Riccardo's clumsy function to simulate new participants
+### TO DO points are only notes for myself, so not part of the assignment
+
+
+usemod=lmer(CHI_MLU~Visit+Diagnosis+(1+Visit|ID), date, REML = FALSE) 
+
+createNewData <- function (participants,visits,usemod){
+  # participants is the number of subjects
+  # visits is the number of visits
+  # TO DO: LOOP THROUGH ALL FE ROWS AND AUTOMATICALLY EXTRACT NAMES OF FIXED EFFECTS AND ESTIMATES
+  fe <- fixef(usemod)
+  Intercept <- fe[1] #intercept
+  bVisit <- fe[2] #visit
+  bDiagnosis <- fe[3] #diagnosis
+  bVisitDiagnosis <- fe[4] #visit diagnosis interaction
+  # TO DO: INTEGRATE STANDARD ERROR?
+  
+  # TO DO: LOOP THROUGH ALL VC COMPONENTS AND AUTOMATICALLY EXTRACT NAMES OF EFFECTS AND ESTIMATES
+  vc<-VarCorr(usemod) # variance component
+  sigmaSubject <- as.numeric(attr(vc[[1]],"stddev")[1]) # random intercept by subject
+  sigmaVisit <- as.numeric(attr(vc[[1]],"stddev")[2]) # random slope of visit over subject
+  sigmaResiduals <- as.numeric(attr(vc,"sc"))
+  sigmaCorrelation <- as.numeric(attr(vc[[1]],"correlation")[2])
+  
+  # Create an empty dataframe
+  d=expand.grid(Visit=1:visits,ID=1:participants)
+  # Randomly sample from a binomial (to generate the diagnosis)
+  condition <- sample(rep(0:1, participants/2))
+  d$Diagnosis<-condition[d$ID]
+  d$Diagnosis[is.na(d$Diagnosis)]<-1
+  
+  ## Define variance covariance matrices:
+  Sigma.u<-matrix(c(sigmaSubject^2,
+                    sigmaCorrelation*sigmaSubject*sigmaVisit,
+                    sigmaCorrelation*sigmaSubject*sigmaVisit,
+                    sigmaVisit^2),nrow=2)
+  
+  ## generate new fake participants (column1=RandomIntercept, column2=RandomSlope)
+  u<-mvrnorm(n=participants,
+             mu=c(0,0),Sigma=cov(ranef(usemod)$ID))
+  
+  ## now generate fake data:
+  ### the outcome is extracted from a gaussian with
+  ### the solution to the model's equation as mean and
+  ### the residual standard deviation as standard deviation 
+  d$CHI_MLU <- rnorm(participants*visits,
+                     (Intercept+u[,1]) +
+                     (bVisit+u[,2])*d$Visit + 
+                     bDiagnosis*d$Diagnosis ,sigmaResiduals)  
+  
+  return(d)
+}
+
+simulated = createNewData(30, 6, usemod)
+
+new=lmer(CHI_MLU~Visit+Diagnosis+(1+Visit|ID), simulated, REML = FALSE) 
+
+sim1=powerSim(new,fixed("Diagnosis"),nsim=1000)
+sim1
+sim2=powerSim(new,fixed("Visit"),nsim=1000)
+sim2
+
+```
+
+
+### Exercise 3
+
+Assume you have only the resources to collect 30 kids (15 with ASD and 15 TDs). Identify the power for each relevant effect and discuss whether it's worth to run the study and why.
+
+
+```{r}
+#subset of dataframe then power curve 
+thirty = train[1:168,]
+
+best1=lmer(CHI_MLU~Visit+Diagnosis+(1+Visit|ID), date, REML = FALSE)
+summary(best1)
+
+pcv3= powerCurve(best1, fixed("Diagnosis"),along="SUBJ", nsim=10)
+plot(pcv3)
+pcv3
+
+fixef(best1)["VISIT"] <- 0.100
+pv2 = powerSim(best1,fixed("VISIT"),nsim=10)
+pv2
+
+
+fixef(best1)["DiagnosisTD"] <- 0.80 #with only 39 it wasn't powerful enough
+pd2 = powerSim(best1,fixed("Diagnosis"),nsim=10)
+pd2
+
+
+```
+

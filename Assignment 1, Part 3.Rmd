@@ -1,0 +1,383 @@
+---
+title: "Assignment 1, Part 3"
+author: "Blanka Zana & Riley Anthony"
+date: "12 December 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Welcome to the third exciting part of the Language Development in ASD exercise
+
+In this exercise we will delve more in depth with different practices of model comparison and model selection, by first evaluating your models from last time, then learning how to cross-validate models and finally how to systematically compare models.
+
+N.B. There are several datasets for this exercise, so pay attention to which one you are using!
+
+1. The (training) dataset from last time (the awesome one you produced :-) ).
+2. The (test) datasets on which you can test the models from last time:
+* Demographic and clinical data: https://www.dropbox.com/s/ra99bdvm6fzay3g/demo_test.csv?dl=0
+* Utterance Length data: https://www.dropbox.com/s/uxtqqzl18nwxowq/LU_test.csv?dl=0
+* Word data: https://www.dropbox.com/s/1ces4hv8kh0stov/token_test.csv?dl=0
+
+### Exercise 1) Testing model performance
+
+How did your models from last time perform? In this exercise you have to compare the results on the training data () and on the test data. Report both of them. Compare them. Discuss why they are different.
+
+- recreate the models you chose last time (just write the code again and apply it to Assignment2TrainData1.csv)
+- calculate performance of the model on the training data: root mean square error is a good measure. (Tip: google the functions rmse() and predict() )
+- create the test dataset (apply the code from assignment 1 part 1 to clean up the 3 test datasets)
+- test the performance of the models on the test data (Tips: time to reuse "predict()")
+- optional: predictions are never certain, can you identify the uncertainty of the predictions? (e.g. google predictinterval())
+
+```{r}
+setwd("~/dánia/Study/Semeser III/ExpMeth III/Ass 3")
+library(pacman)
+p_load(Metrics, caret, groupdata2, pastecs, data.table, perturb, hydroGOF, cvTools)
+
+library(lmerTest)
+library(ggplot2)
+library(dplyr)
+library(plyr)
+library(tidyverse)
+library(MuMIn)
+library(stringr)
+library(cvTools)
+library(hydroGOF)
+library(caret)
+
+
+ass1data=read.csv2("df.csv")
+demotest=read.csv("demo_test.csv")
+LUtest=read.csv("LU_test.csv")
+tokentest=read.csv("token_test.csv")
+
+names(demotest)[names(demotest)=="ID"] <-"ID"
+names(LUtest)[names(LUtest)=="ID"] <-"ID"
+names(tokentest)[names(tokentest)=="ID"] <-"ID"
+
+setnames(demotest,"Child.ID","ID")
+setnames(LUtest,"SUBJ","ID")
+setnames(tokentest,"SUBJ","ID")
+setnames(ass1data,"SUBJ","ID")
+
+names(demotest)[names(demotest)=="VISIT"] <-"Visit"
+names(LUtest)[names(LUtest)=="VISIT"] <-"Visit"
+names(tokentest)[names(tokentest)=="VISIT"] <-"Visit"
+
+
+setnames(ass1data,"VISIT","Visit")
+
+demotest$Visit=str_extract(demotest$Visit, "\\d")
+LUtest$Visit=str_extract(LUtest$Visit, "\\d")
+tokentest$Visit=str_extract(tokentest$Visit, "\\d")
+
+demotest$ID=gsub("\\.","",demotest$ID)
+LUtest$ID=gsub("\\.","",LUtest$ID)
+tokentest$ID=gsub("\\.","",tokentest$ID)
+
+mergedat1=merge(demotest, LUtest, all=T)
+mergeddat=merge(mergedat1, tokentest, all= T)
+
+WorkingData=select(mergeddat, ID, Visit, Ethnicity, Diagnosis, Gender, Age, ADOS,  MullenRaw, ExpressiveLangRaw, MOT_MLU, MOT_LUstd, CHI_MLU, CHI_LUstd, types_MOT, types_CHI, tokens_MOT, tokens_CHI)
+
+names(WorkingData)[names(WorkingData)=="MullenRaw"] <-"nonVerbalIQ"
+names(WorkingData)[names(WorkingData)=="ExpressiveLangRaw"] <-"verbalIQ"
+
+df_temp = subset(WorkingData, Visit == 1)
+df_temp = select(df_temp, ID, ADOS, nonVerbalIQ, verbalIQ)
+WorkingData = subset(WorkingData, select=-c(ADOS, nonVerbalIQ, verbalIQ))
+WorkingData = merge(df_temp, WorkingData, ALL=T)
+
+WorkingData$ID=as.factor(WorkingData$ID)
+WorkingData$ID=as.numeric(WorkingData$ID)
+
+WorkingData$Gender=as.factor(WorkingData$Gender)
+WorkingData$Gender=revalue(WorkingData$Gender,c("1"="M","2"="F"))
+
+WorkingData$Diagnosis=as.factor(WorkingData$Diagnosis)
+WorkingData$Diagnosis=revalue(WorkingData$Diagnosis,c( "A" = "ASD", "B" = "TD"))
+
+WorkingData$Visit=as.integer(WorkingData$Visit)
+ass1data = na.omit(ass1data)
+WorkingData = na.omit(WorkingData)
+
+modelA=lmer(CHI_MLU~Visit*Diagnosis+verbalIQ+tokens_CHI+types_CHI+(1+Visit|ID), ass1data, REML= F)
+summary(modelA)
+Old_DataA=r.squaredGLMM(modelA)
+modelB=lmer(CHI_MLU~Visit*Diagnosis+verbalIQ+tokens_CHI+types_CHI+(1+Visit|ID), WorkingData, REML= F)
+summary(modelB)
+New_DataA=r.squaredGLMM(modelB)
+
+
+
+modelC=lmer(CHI_MLU~Visit+ADOS+(1+Visit|ID), ass1data, REML = F)
+summary(modelC)
+Old_DataB=r.squaredGLMM(modelC)
+modelD=lmer(CHI_MLU~Visit+ADOS+(1+Visit|ID), WorkingData, REML = F)
+summary(modelD)
+New_DataB=r.squaredGLMM(modelD)
+
+
+modelE=lmer(CHI_MLU~MOT_MLU*Diagnosis+ADOS+(1+Visit|ID), ass1data, REML = F)
+summary(modelE)
+Old_DataC=r.squaredGLMM(modelE)
+modelF=lmer(CHI_MLU~MOT_MLU*Diagnosis+ADOS+(1+Visit|ID), WorkingData, REML = F)
+summary(modelF)
+New_DataC=r.squaredGLMM(modelF)
+
+
+rmodels1t = as.data.frame(Old_DataA)
+rmodels2t = as.data.frame(New_DataA)
+rmodels3t = as.data.frame(Old_DataB)
+rmodels4t = as.data.frame(New_DataB)
+rmodels5t = as.data.frame(Old_DataC)
+rmodels6t = as.data.frame(New_DataC)
+
+rmodelsA=cbind(rmodels1t, rmodels2t)
+rmodelsB=cbind(rmodels3t, rmodels4t)
+rmodelsC=cbind(rmodels5t, rmodels6t)
+
+rmodelsA_1=cbind(rmodelsA, rmodelsB)
+rmodels=cbind(rmodelsA_1, rmodelsC)
+
+rmodels=t(rmodels)
+rmodels[2,2] = rmodels[2,3]
+rmodels = rmodels[,1:2]
+
+rmodels=data.frame(rmodels)
+
+rmodels=setnames(rmodels, "X1", "r2m")
+rmodels=setnames(rmodels, "X2", "r2c")
+
+
+Metrics::rmse(ass1data$CHI_MLU, predict(modelA, ass1data, allow.new.levels = TRUE))
+Metrics::rmse(WorkingData$CHI_MLU, predict(modelB, WorkingData, allow.new.levels = TRUE))
+
+mody1 = glm(Ethnicity ~ Diagnosis, family=binomial, WorkingData)
+ploty1 = ggplot(mody1, aes(x=Diagnosis, y=Ethnicity, color=Ethnicity))+
+  geom_jitter(aes())
+  geom_smooth(method="lm")
+ploty1
+
+mody2 = glm(Gender ~ Diagnosis, family=binomial, WorkingData)
+ploty2 = ggplot(mody2, aes(x=Diagnosis, y=Gender, color=Gender))+
+  geom_jitter(aes())
+  geom_smooth(method="lm")
+ploty2
+
+WorkingData$Age=as.numeric(WorkingData$Age)
+mody3 = lm(Age~Diagnosis, data=WorkingData)
+ploty3 = ggplot(mody3, aes(x=Diagnosis, y=Age))+
+  geom_violin(aes())
+  geom_smooth(method="lm")
+ploty3
+
+
+
+```
+[HERE GOES YOUR ANSWER]
+
+### Exercise 2) Model Selection via Cross-validation (N.B: ChildMLU!)
+
+One way to reduce bad surprises when testing a model on new data is to train the model via cross-validation. 
+
+In this exercise you have to use cross-validation to calculate the predictive error of your models and use this predictive error to select the best possible model.
+
+- Create the basic model of ChildMLU as a function of Time and Diagnosis (don't forget the random effects!).
+- Make a cross-validated version of the model. (Tips: google the function "createFolds";  loop through each fold, train a model on the other folds and test it on the fold)
+- Report the results and comment on them.
+
+- Now try to find the best possible predictive model of ChildMLU, that is, the one that produces the best cross-validated results.
+
+- Bonus Question 1: How would you go comparing the performance of the basic model and the cross-validated model on the testing set?
+- Bonus Question 2: What is the effect of changing the number of folds? Can you plot RMSE as a function of number of folds?
+- Bonus Question 3: compare the cross-validated predictive error against the actual predictive error on the test data
+
+```{r}
+
+folds=4
+Original_train=ass1data
+
+perf_test_list=c() #Create variables
+perf_train_list=c()
+
+#add column called "folds"
+foldyass1data=fold(ass1data, folds, id_col = "ID", cat_col = c("Gender", "Diagnosis"))
+
+
+#start loop
+for(i in seq(folds)){
+  temp_train = subset(foldyass1data, .folds != i) #
+  temp_test = subset(foldyass1data, .folds == i) #
+  temp_model = lmerTest::lmer(CHI_MLU~1+Visit+Diagnosis+(1+Visit|ID),temp_train,REML=F)
+  
+  pred_test=predict(temp_model, temp_test, allow.new.levels=T) #
+  perf_test=Metrics::rmse(temp_test$CHI_MLU, pred_test) #
+  perf_test_list=c(perf_test_list, perf_test) #
+  pred_train=predict(temp_model, temp_train, allow.new.levels=T) #
+  perf_train=Metrics::rmse(temp_train$CHI_MLU, pred_train) #
+  perf_train_list=c(perf_train_list, perf_train) 
+}
+simplest = data.frame(perf_train, perf_test)
+
+
+gmod="lmer(CHI_MLU~Visit*Diagnosis+verbalIQ+tokens_CHI+types_CHI+(1+Visit|ID), WorkingData, REML= F)"
+mod1="lmer(CHI_MLU~Visit+ADOS+(1+Visit|ID), WorkingData, REML = F)"
+mod2="lmer(CHI_MLU~MOT_MLU*Diagnosis+ADOS+(1+Visit|ID), WorkingData, REML = F)"
+mod3="lmer(CHI_MLU~1+Visit+nonVerbalIQ+Diagnosis+(1+Visit|ID), WorkingData, REML=F)"
+
+
+models=c(gmod,mod1,mod2,mod3)
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+cross_v=function(numfolds, data, tempmod_string){
+  ass1data=fold(ass1data, numfolds, id_col = "ID", cat_col = c("Gender", "Diagnosis"))
+  perf_test_list=c() #Create variables
+  perf_train_list=c()
+  r2m=c()
+  r2c=c()
+
+  for(i in seq(numfolds)){
+    temp_train = subset(ass1data, .folds != i) #
+    temp_test = subset(ass1data, .folds == i) #
+    
+    temp_model = lmerTest::lmer(CHI_MLU~Visit*Diagnosis+verbalIQ+tokens_CHI+types_CHI+(1+Visit|ID), ass1data, REML= F)
+  
+    pred_test=predict(temp_model, temp_test, allow.new.levels=T) #
+    perf_test=Metrics::rmse(temp_test$CHI_MLU, pred_test) #
+    perf_test_list=c(perf_test_list, perf_test) #
+    pred_train=predict(temp_model, temp_train, allow.new.levels=T) #
+    perf_train=Metrics::rmse(temp_train$CHI_MLU, pred_train) #
+    perf_train_list=c(perf_train_list, perf_train) #
+    
+    r2_df = as.data.frame(r.squaredGLMM(temp_model)) 
+    r2m = c(r2m,r2_df[1,1])
+    r2c = c(r2c,r2_df[2,1])
+  }
+  
+    perf_df= data.frame(perf_test_list, perf_train_list, r2m, r2c, temp_model=tempmod_string)
+  
+}
+
+for(temp_model in models) 
+  if (temp_model == models[1]){
+    results_df=cross_v(4, Original_train, temp_model)
+   }else{
+   results_df = rbind(results_df, cross_v(4, Original_train, temp_model))
+  }
+
+#test_df = gather(results_df, "perf_type", "perf_value", perf_test, perf_train)
+
+L=mean(results_df[1:4,1])
+M=mean(results_df[1:4,2])
+N=mean(results_df[5:8,1])
+O=mean(results_df[5:8,2])
+P=mean(results_df[9:12,1])
+Q=mean(results_df[9:12,2])
+R=mean(results_df[13:16,1])
+S=mean(results_df[13:16,2])
+
+min(L, N, P, R)
+min(M, O, Q, S)
+
+ass1data$Diagnosis=as.numeric(ass1data$Diagnosis)
+modelEz=lm(CHI_MLU~MOT_MLU*Diagnosis+ADOS, ass1data)
+colldiag(modelEz)
+
+
+```
+
+### Exercise 3) Assessing the single child
+
+Let's get to business. This new kiddo - Bernie - has entered your clinic. This child has to be assessed according to his group's average and his expected development.
+
+Bernie is one of the six kids in the test dataset, so make sure to extract that child alone for the following analysis.
+
+
+```{r}
+
+bernie = subset(WorkingData,ID=="2")
+bernie$ID = as.factor(bernie$ID)
+bernie$ID = revalue(bernie$ID, c("2"="Bernie"))
+
+```
+
+You want to evaluate:
+
+- how does the child fare in ChildMLU compared to the average TD child at each visit? Define the distance in terms of absolute difference between this Child and the average TD.
+(Tip: recreate the equation of the model: Y=Intercept+BetaX1+BetaX2, etc; input the average of the TD group  for each parameter in the model as X1, X2, etc.).
+
+
+```{r}
+rip = subset(WorkingData,Diagnosis =="TD")
+
+mean = group_by(rip, Visit) %>%
+  summarise_each(funs(mean(. , na.rm= T)), CHI_MLU)
+
+mean$ID = c("Average TD","Average TD","Average TD","Average TD","Average TD","Average TD")
+
+bernie=merge(mean,bernie, all = T)
+
+bernie$ID=as.factor(bernie$ID)
+bernie$Visit=as.factor(bernie$Visit)
+
+vogue = lmer(CHI_MLU~Visit*Diagnosis*MOT_MLU+verbalIQ+nonVerbalIQ+(1+Visit|ID)+(1|Ethnicity), ass1data)
+
+typically_children = subset(WorkingData,Diagnosis == "TD")
+
+td = typically_children %>%
+    group_by(Visit) %>%
+    dplyr::summarize(CHI_MLU = 0, verbalIQ = mean(verbalIQ),MOT_MLU = mean(MOT_MLU),nonVerbalIQ = mean(nonVerbalIQ),Ethnicity = "White",Diagnosis="TD",ID="predicted TD" )
+
+###
+td$Visit = as.factor(td$Visit)
+berni = subset(WorkingData,ID=="2") 
+berni$ID = as.numeric(berni$ID)
+###
+predict(vogue,mean,allow.new.levels = T)
+td$CHI_MLU = predict(vogue,allow.new.levels=T)
+
+everything = merge(td,bernie,all = T)
+
+
+ggplot(everything,aes(VISIT,CHI_MLU,fill = ID))+geom_bar(stat="identity",position = "dodge")
+
+
+abs(bernie$CHI_MLU[bernie$ID=="Average TD"] - bernie$CHI_MLU[bernie$ID=="Bernie"])
+
+everything$CHI_MLU[everything$ID=="Average TD"]
+
+everything$CHI_MLU[everything$ID =="predicted TD"[everything$VISIT =="6"]]
+```
+
+- how does the child fare compared to the model predictions at Visit 6? Is the child below or above expectations? (tip: use the predict() function on Bernie's data only and compare the prediction with the actual performance of the child)
+
+
+```{r}
+
+
+```
+
+[HERE GOES YOUR ANSWER]
+
+### OPTIONAL: Exercise 4) Model Selection via Information Criteria
+Another way to reduce the bad surprises when testing a model on new data is to pay close attention to the relative information criteria between the models you are comparing. Let's learn how to do that!
+
+Re-create a selection of possible models explaining ChildMLU (the ones you tested for exercise 2, but now trained on the full dataset and not cross-validated).
+Then try to find the best possible predictive model of ChildMLU, that is, the one that produces the lowest information criterion.
+
+```{r}
+
+best=lmer(CHI_MLU~VISIT*Diagnosis*MOT_MLU+verbalIQ+nonVerbalIQ+(1+VISIT|ID)+(1|Ethnicity)+(1|Gender), ass1data)
+
+ex=lmer(CHI_MLU~VISIT+Diagnosis + (1|ID), ass1data)
+
+maybe = lmer(CHI_MLU~Diagnosis+VISIT + (1|ID) + (1|Ethnicity) + (1|Gender), ass1data)
+
+nebulous = lmer(CHI_MLU ~ Diagnosis + (1|ID) + (1|Ethnicity) + (1|Gender), ass1data)
+
+flabbergasted = lmer(CHI_MLU ~ VISIT + (1|ID) + (1|Ethnicity) + (1|Gender), ass1data)
+
+anova(best,ex,maybe,nebulous,flabbergasted)
+```

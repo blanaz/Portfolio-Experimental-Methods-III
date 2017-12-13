@@ -1,0 +1,212 @@
+---
+title: "Assignment 3, Part 1"
+author: "Blanka Zana & Riley Anthony"
+date: "12 December 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(pacman)
+p_load(MuMIn,nlme,lmerTest,lmtest,lme4,dplyr,ggplot2,stats,pcaMethods,data.table,tidyverse,stringr,plyr,groupdata2,Metrics,pastecs,crqa,tseriesChaos,readr,stringr)
+setwd("~/dánia/Study/Semeser III/ExpMeth III/schizo")
+
+```
+
+
+## Assignment 2 - Part 1 - Assessing voice in schizophrenia
+
+Schizophrenia has been associated with "inappropriate" voice, sometimes monotone, sometimes croaky. A few studies indicate that pitch might be an index of schizophrenia. However, an ongoing meta-analysis of the literature (which you will have a go at in the last assignment) indicates that pitch mean and standard deviation are only weak indicators of diagnosis. Can we do better with our new fancy complex skills?
+
+The corpus you are asked to analyse is a set of voice recordings from people with schizophrenia (just after first diagnosis) and 1-1 matched controls (on gender, age, education). Each participant watched 10 videos of triangles moving across the screen and had to describe them (so you have circa 10 recordings per person). I have already extracted the pitch once every 10 milliseconds and you will have to use this data to assess differences in the voice.
+
+N.B. Question to be answered via email to Celine: can you characterize voice in schizophrenia as acoustically different? Report the methods you used to answer this question and the results from the analyses. Add a couple of lines trying to interpret the results (make sense of the difference). E.g. People with schizophrenia tend to have high-pitched voice, and present bigger swings in their prosody than controls. Add a couple of lines describing limitations of the data/analyses if any is relevant.
+
+N.B. There are looots of files to be dealt with. Probably too many for your computer. This is a challenge for you. Some (complementary) possible strategies: You can select a subset of files only (and you have to justify your choice). You can learn how to use the apply() or map() functions. You can coordinate with classmates.
+
+1. In the course of this assignment you have to first select one datafile and figure out how to:
+
+- Extract "standard" descriptors of pitch: Mean, standard deviation, range
+- Extract less "standard" descriptors of pitch you can think of (e.g. median, iqr, mean absoluted deviation, coefficient of variation)
+- Extract "complex" descriptors: recurrence quantification analysis
+
+```{r}
+study1 = read.delim('./Pitch/Study1D0S101T1_f0.txt')
+
+stat.desc(study1$f0,norm = F)
+# simple
+range(study1$f0)
+mean(study1$f0)
+std(study1$f0)
+# less standard
+median(study1$f0)
+IQR(study1$f0, na.rm = F)
+mad(study1$f0, na.rm = FALSE)
+# more complex 
+blondie = crqa(study1$f0,study1$f0, embed = 2, delay = 50, normalize = 0, rescale = 0, radius = 0.5, mindiagline = 2, minvertline = 1)
+blondie$RR
+
+bb
+RP = blondie$RP
+RP
+RP = matrix(as.numeric(RP), nrow = ncol(RP))
+cols = c("white","blue4")
+image(RP, xlab = "", ylab = "", col = cols)
+
+optimal_parameter_extractor = function(filename){
+  temp_df = read.delim(study1)
+  par = list(lgM =  50, steps = seq(1, 6, 1),  radiusspan = 100,  radiussample = 40, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10,  typeami = "mindip")
+  opt_param = NULL
+  opt_param = optimizeParam(temp_df$f0,temp_df$f0, par, min.rec= 3.5, max.rec= 4.5)
+  
+}
+
+
+```
+
+
+2. Second you will have to turn the code into a function and loop through all the files (or even better use apply/sapply/lapply)
+- Remember to extract the relevant information from the file names (Participant, Diagnosis, Trial, Study)
+
+```{r}
+
+
+filelist = list.files(path = "./Pitch",pattern = ".txt",full.names = T)
+std = NULL
+mean = NULL
+N = 1
+participant = NULL
+study = NULL
+range = NULL
+median = NULL
+iqr = NULL
+mad = NULL
+rqa = NULL
+x = NULL
+ID = NULL
+i = NULL
+diagnosis = NULL
+trial = NULL
+Diagnosis = NULL
+Trial = NULL
+
+RR = NULL
+DET = NULL
+NRLINE = NULL
+maxL = NULL
+L = NULL
+ENTR = NULL
+rENTR = NULL
+LAM = NULL
+TT = NULL
+RP = NULL
+
+for (i in filelist) {
+  x = read.delim(i, header = T)
+  x = x$f0
+  ID = str_extract(i, "S+\\d+")
+  participant[N] = str_extract(ID,"\\d+")
+  diagnosis[N] = str_extract(str_extract(i,"D+\\d"), "\\d")
+  #diagnosis[N] = str_extract(Diagnosis,"\\d")
+  trial[N] = str_extract(str_extract(i,"T+\\d"), "\\d")
+  #trial[N] = str_extract(Trial,"\\d")
+  study[N] = str_extract(i, "\\d")
+  range[N] = range(x,na.rm = T)
+  mean[N] = mean(x,na.rm = T)
+  std[N] = std(x)
+  median[N] = median(x, na.rm = T)
+  iqr[N] = IQR(x,na.rm = T)
+  mad[N] = mad(x,na.rm = T)
+  rqa = crqa(x,x, embed = 2, delay = 1, normalize = 0, rescale = 0, radius = 0.5, mindiagline = 2, minvertline = 1)
+  RR[N] = rqa$RR
+  DET[N] = rqa$DET
+  NRLINE[N] = rqa$NRLINE
+  maxL[N] = rqa$maxL
+  L[N] = rqa$L
+  ENTR[N] = rqa$ENTR
+  rENTR[N] = rqa$rENTR
+  LAM[N] = rqa$LAM
+  TT[N] = rqa$TT
+  N = N+1
+}
+
+output_dataframe = data.frame(participant,study,diagnosis,trial,range,mean,std,median,mad,RR,DET,NRLINE,maxL,L,ENTR,rENTR,LAM,TT)
+
+write.csv(output_dataframe, file = "dataframe.csv")
+
+```
+
+
+3. Make one model per acoustic feature and test whether you can observe significant difference due to Diagnosis. Tip: Which other fixed factors should you control for (that is, include in the model)? Which random ones?
+- Bonus points: cross-validate the model and report the betas and standard errors from all rounds to get an idea of how robust the estimates are. 
+3a. Is study a significant predictor in these models? What should you infer from this? Does study interact with diagnosis? What should you infer from this?
+
+```{r}
+
+# 0 = Control
+# 1 = Schizophrenia
+
+output_dataframe$study=as.integer(output_dataframe$study)
+
+M1=lmer(mean~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+M2=lmer(range~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+M3=lmer(std~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+M4=lmer(median~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+M5=lmer(mad~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+M6=lmer(RR~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+M7=lmer(DET~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+M8=lmer(NRLINE~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+M9=lmer(maxL~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+M10=lmer(L~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+M11=lmer(ENTR~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+M12=lmer(rENTR~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+M13=lmer(LAM~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+M14=lmer(TT~diagnosis*study+(1+study|participant), output_dataframe, REML = F)
+
+#Mean
+summary(M1)
+r.squaredGLMM(M1)
+#Range
+summary(M2)
+r.squaredGLMM(M2)
+#Std. Dev.
+summary(M3)
+r.squaredGLMM(M3)
+#Median
+summary(M4)
+r.squaredGLMM(M4)
+#mad: Median Absolute Deviation
+summary(M5)
+r.squaredGLMM(M5)
+#RR: Recurrence Rate
+summary(M6)
+r.squaredGLMM(M6)
+#Determinism
+summary(M7)
+r.squaredGLMM(M7)
+#NRLINE: Number of Lines
+summary(M8)
+r.squaredGLMM(M8)
+#maxL: Longest Diagonal Line
+summary(M9)
+r.squaredGLMM(M9)
+#L:average length of diagonal lines 
+summary(M10)
+r.squaredGLMM(M10)
+#ENTR: entropy
+summary(M11)
+r.squaredGLMM(M11)
+#rENTR
+summary(M12)
+r.squaredGLMM(M12)
+#LAM: Laminarity
+summary(M13)
+r.squaredGLMM(M13)
+#TT: Trapping Time
+summary(M14)
+r.squaredGLMM(M14)
+
+
+```

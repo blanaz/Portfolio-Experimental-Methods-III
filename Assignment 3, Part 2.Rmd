@@ -1,0 +1,447 @@
+---
+title: "Assignment 3, Part 2"
+author: "Blanka Zana & Riley Anthony"
+date: "12 December 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Assignment 3 - Diagnosing schizophrenia from voice
+
+In the previous part of the assignment you generated a bunch of "features", that is, of quantitative descriptors of voice in schizophrenia, focusing on pitch.
+In the course of this assignment we will use them to try to automatically diagnose schizophrenia from voice only, that is, relying on the set of features you produced last time, we will try to produce an automated classifier.
+
+```{r}
+setwd("~/dánia/Study/Semeser III/ExpMeth III/schizo")
+library(pacman)
+p_load(MuMIn,nlme,lmerTest,lmtest,lme4,dplyr,ggplot2,stats,pcaMethods,data.table,tidyverse,stringr,plyr,groupdata2,Metrics,pastecs,crqa,tseriesChaos,readr,stringr,cvms,groupdata2)
+
+df = read.csv("final_rqa.csv")
+
+
+```
+
+### Question 1: Can you diagnose schizophrenia from pitch range only? If so, how well?
+
+```{r}
+
+df$mean<- scale(df$mean, center = TRUE)
+df$range<- scale(df$range, center = TRUE)
+df$stdDev<- scale(df$std, center = TRUE)
+df$median<- scale(df$median, center = TRUE)
+df$rqa_REC<- scale(df$rqa_REC, center = TRUE)
+df$rqa_DET<- scale(df$rqa_DET, center = TRUE)
+df$rqa_maxL<- scale(df$rqa_maxL, center = TRUE)
+df$rqa_L<- scale(df$rqa_L, center = TRUE)
+df$rqa_ENTR<- scale(df$rqa_ENTR, center = TRUE)
+df$rqa_TT<- scale(df$rqa_TT, center = TRUE)
+df$rqa_LAM<- scale(df$rqa_LAM, center = TRUE)
+df<- na.omit(df)
+
+#a)
+##Build a logistic regression to see whether you can diagnose schizophrenia from pitch range only.
+m1<-glm(diagnosis ~ range, data = df, family = "binomial")
+summary(m1)
+
+
+#extracting odds and probabilities
+exp(m1$coefficients[2]-m1$coefficients[1])
+
+inv.logit(m1$coefficients[2]-m1$coefficients[1])##with perfectly average mean and range, if you always assume diagnosis is positive, how often will you be correct in this assumption
+
+
+##N.B. the predict() function generates probabilities (the full scale between 0 and 1). A probability > .5 indicates a choice of 1, below a choice of 0.
+
+m2<-glmer(diagnosis ~ range + (1+study|participant), data = df, family = "binomial")
+
+df$predictions=predict(m2)
+df$dpred[df$predictions>0]="schizophrenia"
+df$dpred[df$predictions<0]="control"
+
+#b)
+##Calculate the different performance measures (accuracy, sensitivity, specificity, PPV, NPV, ROC curve) on a logistic regression using the full dataset. Don't forget the random effects!
+damn = confusionMatrix(data = df$dpred, reference = df$diagnosis, positive = "schizophrenia") 
+damn
+#roc curve and auc
+p_load(pROC,caret)
+rocCurve <- roc(response = df$diagnosis, predictor = df$predictions)
+auc(rocCurve) 
+ci (rocCurve)
+plot(rocCurve, legacy.axes = TRUE) 
+
+
+
+#c)
+##Then cross-validate the logistic regression and re-calculate performance on the testing folds. N.B. The cross-validation functions you already have should be tweaked: you need to calculate these new performance measures.
+
+##N.B. you need to decide whether to calculate performance on each single test fold or save all the prediction for test folds in one dataset, so to calculate overall performance.
+
+df$.folds
+df <- fold(df, k = 4,
+             cat_col = 'diagnosis',
+             id_col = 'participant') %>% 
+  arrange(.folds)
+CV2 <- cross_validate(df, "diagnosis ~ range", 
+                     folds_col = '.folds', 
+                     family='binomial')
+
+
+```
+
+Build a logistic regression to see whether you can diagnose schizophrenia from pitch range only.
+
+Calculate the different performance measures (accuracy, sensitivity, specificity, PPV, NPV, ROC curve) on a logistic regression using the full dataset. Don't forget the random effects!
+
+Then cross-validate the logistic regression and re-calculate performance on the testing folds. N.B. The cross-validation functions you already have should be tweaked: you need to calculate these new performance measures.
+
+N.B. the predict() function generates log odds (the full scale between minus and plus infinity). Log odds > 0 indicates a choice of 1, below a choice of 0.
+N.B. you need to decide whether calculate performance on each single test fold or save all the prediction for test folds in one datase, so to calculate overall performance.
+N.B. Now you have two levels of structure: subject and study. Should this impact your cross-validation?
+
+### Question 2 - Which single acoustic predictor is the best predictor of diagnosis?
+
+```{r}
+
+##Which single predictor is the best predictor of diagnosis?
+m3<-glmer(diagnosis ~ mean + (1|study)+(1|participant), data = df, family = "binomial")
+m4<-glmer(diagnosis ~ stdDev + (1|study)+(1|participant), data = df, family = "binomial")
+m5<-glmer(diagnosis ~ median + (1|study)+(1|participant), data = df, family = "binomial")
+m6<-glmer(diagnosis ~ rqa_REC + (1|study)+(1|participant), data = df, family = "binomial")
+m7<-glmer(diagnosis ~ rqa_DET + (1|study)+(1|participant), data = df, family = "binomial")
+m8<-glmer(diagnosis ~ rqa_maxL + (1|study)+(1|participant), data = df, family = "binomial")
+m9<-glmer(diagnosis ~ rqa_L + (1|study)+(1|participant), data = df, family = "binomial")
+m10<-glmer(diagnosis ~ rqa_ENTR + (1|study)+(1|participant), data = df, family = "binomial")
+m11<-glmer(diagnosis ~ rqa_TT + (1|study)+(1|participant), data = df, family = "binomial")
+m12<-glmer(diagnosis ~ rqa_LAM + (1|study)+(1|participant), data = df, family = "binomial")
+
+anova(m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,m12)
+summary(m12)
+r.squaredGLMM(m12)
+
+```
+
+### Question 3 - Which combination of acoustic predictors is best for diagnosing schizophrenia?
+
+Now it's time to go wild! Use all (voice-related) variables and interactions you can think of. Compare models and select the best performing model you can find.
+
+Remember:
+- Out-of-sample error crucial to build the best model!
+- After choosing the model, send Celine and Riccardo the code of your model
+
+```{r}
+##Now it's time to go wild! Use all (voice-related) variables and interactions you can think of. Compare models and select the best performing model you can find.
+
+m13<-glmer(diagnosis ~ range*mean*stdDev*median + (1+study|participant), data = df, family = "binomial")
+m14<-glmer(diagnosis ~ rqa_REC*rqa_DET*rqa_maxL + (1+study|participant), data = df, family = "binomial")
+m15<-glmer(diagnosis ~ rqa_L*rqa_ENTR*rqa_TT*rqa_LAM + (1+study|participant), data = df, family = "binomial")
+m16 = glmer(diagnosis ~ range+mean+stdDev+median + (1+study|participant), data = df, family = "binomial")
+m17 = glmer(diagnosis ~ rqa_LAM *stdDev*range+ (1+study|participant), df, family = "binomial")
+
+##Remember:
+# - Cross-validation or AIC are crucial to build the best model!
+# - After choosing the model, train it on all the data you have
+anova(m13, m14, m15,m16,m17)
+summary(m17)
+r.squaredGLMM(m17)
+r.squaredGLMM(m12)
+anova(m12,m13)
+
+m1000<-glmer(diagnosis ~ range*mean*stdDev*median * rqa_REC+ rqa_DET + rqa_LAM + rqa_maxL+ rqa_L+rqa_ENTR +rqa_TT+ (1+study|participant), data = df, family = "binomial")
+summary(m1000)
+r.squaredGLMM(m1000)
+
+#performance of each model
+
+df$.folds = NULL
+
+getPerformance = function(test_df, train_df, mdl,  n = NA, r2 = T, ref = "control"){
+  #assess performance and append it to a list
+  
+    #save perf to list
+      #Test performance
+  test_df$PredLogOdds = predict(mdl, test_df, allow.new.levels = T)
+  test_df$PredictionsPerc = inv.logit(test_df$PredLogOdds)
+  test_df$Predictions = NA
+  test_df$Predictions[test_df$PredictionsPerc>0.50] = "schizophrenia"
+  test_df$Predictions[test_df$PredictionsPerc<=0.50] = "control"
+  test_df$Predictions=as.factor(test_df$Predictions)
+  test_df$Predictions <- relevel(test_df$Predictions, ref = ref)
+  conf_test = confusionMatrix(data = test_df$Predictions, 
+                              reference = test_df$diagnosis, positive = "control")
+    #roc curve test
+  rocCurve_test = roc(response = test_df$diagnosis, predictor = test_df$PredLogOdds)
+  
+
+        #train performance
+  train_df$PredLogOdds=predict(mdl, train_df, allow.new.levels = T)
+  train_df$PredictionsPerc = inv.logit(train_df$PredLogOdds)
+  train_df$Predictions = NA
+  train_df$Predictions[train_df$PredictionsPerc>0.5]="schizophrenia"
+  train_df$Predictions[train_df$PredictionsPerc<=0.5]="control"
+  train_df$Predictions=as.factor(train_df$Predictions)
+  train_df$Predictions <- relevel(train_df$Predictions, ref = "control")
+  conf_train = confusionMatrix(data = train_df$Predictions, 
+                              reference = train_df$diagnosis, positive = "control")
+    #roc curve train
+  rocCurve_train = roc(response = train_df$diagnosis, predictor = train_df$PredLogOdds)
+  
+  
+  if (r2 == T){
+        #adding r2 scores
+    r2_df = as.data.frame(r.squaredGLMM(mdl))
+    r2m = c(r2m, r2_df[1,1])
+    r2c = c(r2c, r2_df[2,1])
+  } else {
+    r2m = NA
+    r2c = NA
+  }
+  
+    #saving everything to a df
+  result_df =  data.frame(acc_test = conf_test$overall[1], #saving test perf
+                          sensitivity_test = conf_test$byClass[1],
+                          specificity_test = conf_test$byClass[2],
+                          pos_pred_test = conf_test$byClass[3],
+                          neg_pred_test = conf_test$byClass[4], 
+                          auc_test = auc(rocCurve_test),
+                          acc_train = conf_train$overall[1], #saving train perf
+                          sensitivity_train = conf_train$byClass[1],
+                          specificity_train = conf_train$byClass[2],
+                          pos_pred_train = conf_train$byClass[3],
+                          neg_pred_train = conf_train$byClass[4],
+                          auc_train = auc(rocCurve_train),
+                          r2m, r2c, n = n, row.names = NULL) #adding additional info
+  
+  
+  return(result_df)
+} #a function which gets performance of a glmer based on a test_df as well as train df (this could be split into two function)
+
+
+extract_fixedef = function(mdl_string, ignore = ""){
+  x = NA
+  x = str_extract(mdl_string, "(\\~).+") #takes everything after the ~
+  x = gsub("\\(([^\\)]+)\\)","", x) #removed random effects (everything in paranthesis)
+  x = gsub("\\W"," ", x) #removes everything which i neither word nor 
+  x = gsub(" +"," ", x) #removes multiple whitespaces (keeps a single)
+  x = strsplit(x, " ")[[1]] #split the string
+  y = NA
+  y = c() #adding a list to put the variables into 
+  for (i in x){if (nchar(i)>0 & i != 1 & i != ignore){y=c(y,i)}} #include every element which is not 1 or a whitespace 
+  return(y)
+} #a function which extracts fixed effect from a mdl string
+
+extract_fixedef("diagnosis ~ range*trial + (1 + trial | participant) + (1 + trial | study)",  ignore = "trial") #!# to test extract_fixedef
+
+#!# temp for testing CrossVal
+mdl_string = "diagnosis ~ range + (1 | participant)"
+num_folds = 4
+dataset = df
+ID_col = "o"
+CAT_col = c("diagnosis")
+r2 = F
+scale = T
+fold = 1
+n = fold
+r2 = F
+
+ #defining a cross validate function
+CrossVal = function(num_folds, dataset, mdl_string, ID_col = NULL, CAT_col = NULL, r2 = F, scale = T, relevel = T, ref = "control", glmer = T) {
+
+  #folding the dataset
+  dataset = fold(dataset, num_folds, cat_col = CAT_col, id_col = ID_col, method = 'n_dist')
+  
+    #looping through the folds
+  for (fold in seq(num_folds)) {
+    train_df = subset(dataset, .folds != fold)
+    test_df = subset(dataset, .folds == fold)
+    
+    if (relevel == T){
+      #!# the following should be generalized and automated
+      train_df$diagnosis <- relevel(train_df$diagnosis, ref = ref)
+      test_df$diagnosis <- relevel(test_df$diagnosis, ref = ref)
+    }
+    
+    if (scale == T){
+    #applying scale()
+      for (i in extract_fixedef(mdl_string)){
+          #scaling train df
+        temp_col = as.data.frame(train_df[, i])[,1] #saving the column to use it for scaling - making it a df and selecting to column to avoid a problem between tibble and the mean and sd functions
+        train_df[, i] = scale(train_df[, i], 
+                              center = mean(temp_col, na.rm = T), 
+                              scale = sd(temp_col, na.rm = T))
+        #scaling test df using the same parameters af train df 
+        test_df[, i] = scale(test_df[, i], 
+                             center = mean(temp_col, na.rm = T), 
+                             scale = sd(temp_col, na.rm = T))
+      }
+    }
+    
+    
+    if (glmer == T){
+    #train data on all except the fold
+    mdl = try(glmer(mdl_string, train_df, family = "binomial", 
+                control = #adding an optimizer
+                  glmerControl(optimizer = "nloptwrap", calc.derivs = FALSE)))
+    } else {
+      mdl = try(glm(mdl_string, train_df, family = "binomial"))
+    }
+    temp_sum = try(summary(mdl))
+    if (length(temp_sum) > 3){ #if you could make a model
+        #asses performance and append it to a df
+      temp = getPerformance(test_df, train_df, mdl, n = fold, r2 = r2)
+    } else {#if you couldn't make a model
+      temp = data.frame(acc_test = NA, sensitivity_test = NA , specificity_test = NA, 
+                        pos_pred_test = NA, neg_pred_test = NA, acc_train = NA, auc_test = NA, 
+                        sensitivity_train = NA, specificity_train = NA, pos_pred_train = NA,
+                        neg_pred_train = NA, auc_train = NA,  r2m = NA, r2c = NA, n = fold)
+    }
+    temp$mdl = mdl_string
+    temp$numfolds = num_folds
+    if (fold == 1){ #if first part - make a df
+      perf_df = temp
+    } else{ #else append to df
+      perf_df = rbind(perf_df, temp)  
+    }
+    
+  }
+  return(perf_df)
+}
+
+perf_df_simple = CrossVal(mdl_string = "diagnosis ~ range",
+                   num_folds = 4, dataset = df, ID_col = "participant", 
+                   CAT_col = c("diagnosis"), glmer = F) 
+mean(perf_df_simple$acc_train)
+perf_df_complex = 
+  CrossVal(mdl_string = "diagnosis ~ range*trial + (1 + trial | participant) + (1 + trial | study)",
+                   num_folds = 4, dataset = df, ID_col = "participant", 
+                   CAT_col = c("diagnosis")) 
+mine = 
+  CrossVal(mdl_string = "diagnosis ~ rqa_LAM*stdDev*range + (1 | participant)",
+                   num_folds = 4, dataset = df, ID_col = "participant", 
+                   CAT_col = c("diagnosis")) 
+overfitted = 
+  CrossVal(mdl_string = "diagnosis ~ mean*range + stdDev+ (1 | participant)",
+                   num_folds = 4, dataset = df, ID_col = "participant", 
+                   CAT_col = c("diagnosis")) 
+
+
+
+mean(perf_df_simple$pos_pred_test)
+mean(perf_df_simple$acc_test)
+
+
+# - Create a Markdown that can: a) extract the features from new pitch files(basically your previous markdown), b) load your model (e.g.load("BestModelForever.rda")), and c) predict the diagnosis in the new dataframe.
+
+#par
+par = list(lgM =  10, steps = seq(1, 6, 1),  radiusspan = 100,  radiussample = 40, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10,  typeami = 'mindip')
+
+#rqa
+rqa_analysis= function(x)(  
+  crqa(x, x, embed = 11, delay = 9, normalize = 0, rescale = 0, radius = 2,
+  mindiagline = 2, minvertline = 1)
+)
+
+#loop
+folder = file.path(path)
+pitch_list<- list.files(path = folder, recursive = TRUE, pattern = "*f0.txt")
+std = NULL
+mean = NULL
+study = NULL
+range = NULL
+median = NULL
+iqr = NULL
+mad = NULL
+rqa = NULL
+id = NULL
+diagnosis = NULL
+trial = NULL
+Diagnosis = NULL
+Trial = NULL
+RR = NULL
+DET = NULL
+NRLINE = NULL
+maxL = NULL
+L = NULL
+ENTR = NULL
+rENTR = NULL
+LAM = NULL
+TT = NULL
+RP = NULL
+variance = NULL
+x = NULL
+N = 1
+
+for (i in pitch_list) {
+  x = read.delim(i, header = T)
+  x = x$f0
+  id = str_extract(i, "S+\\d+")
+  id[N] = str_extract(id,"\\d+")
+  diagnosis[N] = str_extract(str_extract(i,"D+\\d"), "\\d")
+  trial[N] = str_extract(str_extract(i,"T+\\d"), "\\d")
+  study[N] = str_extract(i, "\\d")
+  range[N] = range(x,na.rm = T)
+  mean[N] = mean(x,na.rm = T)
+  variance[N] = var(x, na.rm=TRUE)
+  std[N] = std(x)
+  median[N] = median(x, na.rm = T)
+  iqr[N] = IQR(x,na.rm = T)
+  mad[N] = mad(x,na.rm = T)
+  rqa = crqa(x,x, embed = 2, delay = 1, normalize = 0, rescale = 0, radius = 0.5, mindiagline = 2, minvertline = 1)
+  RR[N] = rqa$RR
+  DET[N] = rqa$DET
+  NRLINE[N] = rqa$NRLINE
+  maxL[N] = rqa$maxL
+  L[N] = rqa$L
+  ENTR[N] = rqa$ENTR
+  rENTR[N] = rqa$rENTR
+  LAM[N] = rqa$LAM
+  TT[N] = rqa$TT
+  N = N+1
+}
+
+#save
+dframe = data.frame(id,study,diagnosis,trial,range,mean,variance,std,median,mad,RR,DET,NRLINE,maxL,L,ENTR,rENTR,LAM,TT)
+
+#load the best model
+model<-load(file = "BestModelForever.rda")
+
+#predict!
+df$predictions=predict(model)
+df$dpred[df$predictions>0]="schizophrenia"
+df$dpred[df$predictions<0]="control"
+
+#CM
+confusionMatrix(data = df$dpred, reference = df$diagnosis, positive = "schizophrenia")
+
+#make cross val
+df <- fold(df, k = 4,
+             cat_col = 'diagnosis',
+             id_col = 'participant') %>% 
+  arrange(.folds)
+CV3 <- cross_validate(df, "diagnosis ~ range*mean*stdDev*median", 
+                     folds_col = '.folds', 
+                     family='binomial')
+#you ROC!
+rocCurve <- roc(response = df$diagnosis, predictor = df$predictions)
+auc(rocCurve) 
+ci (rocCurve)
+plot(rocCurve, legacy.axes = TRUE) 
+```
+
+
+
+### Question 4: Properly report the results
+
+METHODS SECTION: how did you analyse the data? That is, how did you extract the data, designed the models and compared their performance?
+
+RESULTS SECTION: can you diagnose schizophrenia based on voice? which features are used? Comment on the difference between the different performance measures.
+
+### Bonus question 5
+
+You have some additional bonus data involving speech rate, pauses, etc. Include them in your analysis. Do they improve classification?
+
+### Bonus question 6
+
+Logistic regression is only one of many classification algorithms. Try using others and compare performance. Some examples: Discriminant Function, Random Forest, Support Vector Machine, etc. The package caret provides them.

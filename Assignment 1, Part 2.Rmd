@@ -1,0 +1,178 @@
+---
+title: "Assignment 1, Part 2"
+author: "Blanka Zana & Riley Anthony"
+thing: "12 December 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Assignment 1, Part 2
+
+## Exercise 1) Preliminary Data Exploration
+
+Describe the participant samples in the dataset (e.g. by diagnosis, age, etc.). Do you think the two groups are well balanced? If not, what do you think was the reason?
+
+```{r}
+library(dplyr)
+library(lme4)
+library(ggplot2)
+library(lmtest)
+library(pacman)
+library(nlme)
+library(lmerTest)
+p_load(MuMIn,stats,pcaMethods)
+setwd("~/dánia/Study/Semeser III/ExpMeth III/Assignment 1/Assignment-1")
+thing = read.csv2("DONE.csv")
+thing[1] = NULL
+
+thing$SUBJ = as.factor(thing$SUBJ)
+summary(thing$Ethnicity[unique(thing$SUBJ)])
+summary(thing$Ethnicity[thing$Diagnosis =="TD"])
+summary(thing$Ethnicity[thing$Diagnosis =="ASD"])
+summary(thing$Gender[thing$Diagnosis == "ASD"][thing$VISIT==3], na.rm = T)
+summary(thing$Gender[thing$Diagnosis=="ASD"])
+
+v1 = subset(thing, VISIT == 1)
+summary(v1$Gender[v1$Diagnosis =="ASD"])
+summary(v1$Gender[v1$Diagnosis =="TD"])
+
+summary(v1$Ethnicity[v1$Diagnosis =="ASD"])
+summary(v1$Ethnicity[v1$Diagnosis =="TD"])
+
+
+#1)
+mean(thing$Age[thing$Diagnosis == "TD"],na.rm=T)
+mean(thing$Age[thing$Diagnosis == "ASD"],na.rm=T)
+
+ggplot(thing,aes(x=VISIT, y=CHI_MLU, color=Diagnosis)) + geom_boxplot() + geom_smooth(method="lm",se=TRUE) + facet_wrap(~VISIT)
+
+#2)
+ggplot(thing,aes(Diagnosis,Age))+geom_violin()
+
+#3)
+thing$SUBJ=as.factor(thing$SUBJ)
+#depicting the results throughout all visits of all children together
+debasement = ggplot(thing,aes(VISIT,CHI_MLU,color=SUBJ))+geom_line()+facet_wrap(~Diagnosis)+theme(legend.position="none") 
+debasement
+#same, but separating TD and ASD kids results
+debasement1 = ggplot(thing,aes(VISIT,CHI_MLU,color=SUBJ))+geom_line()+theme(legend.position="none") 
+debasement1
+
+#4)
+ggplot(thing,aes(VISIT,tokens_CHI))+geom_point()+geom_smooth(method="lm",se=TRUE)+facet_wrap(~Diagnosis)
+
+```
+
+### Exercise 2) Children learning language: the effects of time and ASD
+Describe linguistic development in TD and ASD children in terms of Mean Length of Utterance (MLU)?
+
+```{r}
+#plot first
+
+ggplot(thing,aes(VISIT,CHI_MLU)) + geom_point() + geom_smooth(method="lm",se=T)
+
+flabbergasted = lmer(CHI_MLU ~ VISIT + (1|SUBJ) + (1|Ethnicity) + (1|Gender), thing)
+summary(flabbergasted)
+anova(flabbergasted)
+
+PLOT = ggplot(thing, aes(x= Age, y = CHI_MLU)) +
+  geom_point(aes())+
+  facet_wrap(~Diagnosis)+
+  geom_smooth(method = "lm")
+
+PLOT
+
+#ii)
+
+#plot first
+ggplot(thing,aes(Diagnosis, CHI_MLU)) + geom_boxplot()
+nebulous = lmer(CHI_MLU ~ Diagnosis + (1|SUBJ) + (1|Ethnicity) + (1|Gender), thing)
+summary(nebulous)
+anova(nebulous)
+
+#iii)
+#plot first
+
+ggplot(thing,aes(VISIT,CHI_MLU)) + geom_point() + geom_smooth(method="lm", se= T) + facet_wrap(~Diagnosis)
+
+serendipity = lmer(CHI_MLU~ Diagnosis+VISIT+Age + (1|SUBJ) + (1|Gender), thing)
+summary(serendipity)
+anova(serendipity)
+r.squaredGLMM(serendipity)
+plot(serendipity)
+
+base = lm(CHI_MLU ~ Diagnosis, thing)
+
+##############this one
+timediagmodel = lmer(CHI_MLU ~ VISIT * Diagnosis + (1+VISIT|SUBJ), thing)
+summary(timediagmodel)
+r.squaredGLMM(timediagmodel)
+
+###############this one
+
+timemodel = lmer(CHI_MLU ~ VISIT + (1+VISIT|SUBJ), thing)
+r.squaredGLMM(timemodel)
+summary(timemodel)
+
+################this one
+nullmodel = lmer(CHI_MLU ~ 1 + (1+VISIT|SUBJ), thing)
+r.squaredGLMM(nullmodel)
+summary(nullmodel)
+
+anova(timediagmodel,timemodel,nullmodel)
+
+nullmodel = lmer(CHI_MLU ~ 1 + (1+VISIT|SUBJ), thing)
+r.squaredGLMM(nullmodel)
+anova(nullmodel,timemodel)
+anova(nullmodel,timemodel,timediagmodel)
+summary(nullmodel)
+
+ggplot(thing, aes(VISIT,CHI_MLU)) + geom_violin() + facet_wrap(~Diagnosis)
+
+```
+
+### Exercise 3) Child directed speech as a moving target
+Describe how parental use of language changes over time in terms of MLU. What do you think is going on?
+
+```{r}
+
+parentime = lmer(MOT_MLU~VISIT+(1+VISIT|SUBJ), thing, REML = F)
+summary(parentime)
+r.squaredGLMM(parentime)
+
+parentimediag = lmer(MOT_MLU~VISIT+Diagnosis+(1+VISIT|SUBJ), thing, REML = F)
+summary(parentimediag)
+r.squaredGLMM(parentimediag)
+
+nullparent = lmer(MOT_MLU~1+(1+VISIT|SUBJ), thing, REML = F)
+
+anova( parentimediag,nullparent)
+
+ggplot(thing, aes(Age,MOT_MLU))+geom_point()+geom_smooth(method = "lm", se=T,fullrange=T)+facet_wrap(~Diagnosis)+theme(legend.position="none")
+```
+
+### Exercise 4) Looking into "individual differences" (demographic, clinical or cognitive profiles)
+Describe your strategy to select the best models (how did you choose the variables to include?) and send the code to Riccardo and Celine.
+
+```{r}
+best=lmer(CHI_MLU~VISIT*Diagnosis+verbalIQ+tokens_CHI++types_CHI+(1+VISIT|SUBJ), thing)
+summary(best)
+r.squaredGLMM(best)
+anova(best)
+
+other = lmer(CHI_MLU~VISIT+ADOS+(1+VISIT|SUBJ), thing)
+summary(other)
+r.squaredGLMM(other)
+
+other2 = lmer(CHI_MLU~MOT_MLU*Diagnosis+ADOS+(1+VISIT|SUBJ), thing)
+summary(other2)
+r.squaredGLMM(other2)
+
+beste=lmer(CHI_MLU~VISIT*Diagnosis+verbalIQ+tokens_CHI+types_CHI+(1+VISIT|SUBJ), thing)
+summary(beste)
+r.squaredGLMM(beste)
+
+```

@@ -1,0 +1,245 @@
+---
+title: "Assignment 1, Part 1"
+author: "Blanka Zana & Riley Anthony"
+date: "12 December 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Assignment 1, Part 1: Language development in Autism Spectrum Disorder (ASD) - Brushing up your code skills
+
+In this first part of the assignment we will brush up your programming skills, and make you familiar with the data sets you will be analysing for the next parts of the assignment.
+
+## 2. Now let's take dirty dirty data sets and make them into a tidy one
+
+Set the working directory (the directory with your data and code for these assignments):
+
+```{r}
+setwd("~/dánia/Study/Semeser III/ExpMeth III/Assignment 1/Assignment-1")
+
+```
+
+Load the three data sets, after downloading them from dropbox and saving them in your working directory:
+
+```{r}
+demData = read.csv ("demo_train(1).csv")
+utData = read.csv("LU_train.csv")
+wordData = read.csv ("token_train.csv")
+```
+
+Explore the 3 datasets (e.g. visualize them, summarize them, etc.). 
+Before being able to combine the data sets we need to make sure the relevant variables have the same names and the same kind of values.
+
+So:
+
+2a. Find a way to transform variable names.
+
+
+```{r}
+library(data.table)
+
+#rename Child ID to Subj in dataframe demData
+setnames(demData,"Child.ID","SUBJ")
+#also Visit to VISIT
+setnames(demData, "Visit","VISIT")
+
+```
+
+2b. Find a way to homogeneize the way "visit" is reported. 
+
+```{r}
+
+library(stringr)
+utData$VISIT = str_extract(utData$VISIT,"\\d")
+
+wordData$VISIT = str_extract(wordData$VISIT,"\\d")
+
+
+```
+
+2c.We wish to remove the "." at the end of names in the LU data and the tokens data.
+To do these a subfunction of apply(), called sapply() can be used.
+
+```{r}
+utData$SUBJ = gsub("\\.","",utData$SUBJ)
+wordData$SUBJ = gsub("\\.","",utData$SUBJ)
+demData$SUBJ = gsub ("\\.","",demData$SUBJ)
+
+
+```
+
+2d. Now that the nitty gritty details of the different data sets are fixed, we want to make a subset of each data set only containig the variables that we wish to use in the final data set.
+
+The variables we need are: Child.ID, Visit, Ethnicity, Diagnosis, Gender, Age, ADOS,  MullenRaw, ExpressiveLangRaw, MOT_MLU, MOT_LUstd, CHI_MLU, CHI_LUstd, types_MOT, types_CHI, tokens_MOT, tokens_CHI.
+
+It would be smart to rename the MullenRaw and ExpressiveLangRaw into something you can remember (i.e. nonVerbalIQ, verbalIQ)
+
+```{r}
+
+library(tidyverse,dplyr)
+
+#first merging the datasets
+newData1=merge(demData,utData,all=T)
+newData=merge(newData1,wordData,all=T)
+
+#then select the ones we need
+
+chosen = select(newData, SUBJ, VISIT, Ethnicity, Diagnosis, Gender, Age, ADOS,  MullenRaw, ExpressiveLangRaw, MOT_MLU, MOT_LUstd, CHI_MLU, CHI_LUstd, types_MOT, types_CHI, tokens_MOT, tokens_CHI)
+
+setnames(chosen,"MullenRaw","nonVerbalIQ")
+setnames(chosen,"ExpressiveLangRaw","verbalIQ")
+
+
+```
+
+So let's make sure that we select only these variables as collected during the first visit for each child and repeat these values throughout all other visits.
+
+
+```{r}
+#replace subset of NAS with select visit 1
+df_temp = subset(chosen, VISIT == 1) #choosing only the first visit
+
+df_temp = select(df_temp, SUBJ, ADOS, nonVerbalIQ, verbalIQ) #choose the relevant info
+
+chosen = subset(chosen, select=-c(ADOS, nonVerbalIQ, verbalIQ))#drop the column you want to refresh
+chosen = merge(df_temp, chosen, ALL=T)
+
+```
+
+Now, we are almost ready to actually start working with the data. However, here are some additional finishing touches:
+
+* in some experiments your participants must be anonymous. Therefore we wish to turn the CHILD.ID into numbers. 
+Tip: as.numeric() might be a useful function, but not alone.
+
+* Note that visit is (probably) not defined as numeric. Turn it into a numeric variable
+
+* In order to make it easier to work with this nice, clean dataset in the future, it is practical to make sure the variables have sensible values. E.g. right now gender is marked 1 and 2, but in two weeks you will not be able to remember, which gender were connected to which number, so change the values from 1 and 2 to F and M in the gender variable. For the same reason, you should also change the values of Diagnosis from A and B to ASD (autism spectrum disorder) and TD (typically developing). 
+Tip: Google "how to rename levels in R".
+
+```{r}
+chosen$VISIT=as.numeric(chosen$VISIT)
+library(plyr)
+chosen$Gender=as.factor(chosen$Gender)
+chosen$Gender = revalue(chosen$Gender, c("1"="F", "2"="M"))
+
+chosen$Diagnosis=as.factor(chosen$Diagnosis)
+chosen$Diagnosis = revalue (chosen$Diagnosis, c("A" = "ASD", "B" = "TD"))
+
+chosen$SUBJ=as.factor(chosen$SUBJ)
+chosen$SUBJ=as.numeric(chosen$SUBJ)
+
+summary(chosen$Gender[thing$VISIT==1])
+```
+
+
+Save the data set using into a csv file. Hint: look into write.csv()
+
+
+```{r}
+write.csv2(chosen, file = "DONE.CSV")
+
+```
+
+
+3) Now that we have a nice clean data set to use for the analysis next week, we shall play a bit around with it. The following exercises are not relevant for the analysis, but are here so you can get familiar with the functions within the tidyverse package.
+
+Here's the link to a very helpful book, which explains each function:
+http://r4ds.had.co.nz/index.html
+
+1) USING FILTER
+List all kids who:
+1. have a mean length of utterance (across all visits) of more than 2.7 morphemes.
+2. have a mean length of utterance of less than 1.5 morphemes at the first visit
+3. have not completed all trials. Tip: Use pipes to solve this
+
+```{r}
+library(dplyr)
+library(reshape)
+library(data.table)
+
+
+chosen$CHI_MLU=as.numeric(chosen$CHI_MLU, na.rm = T)
+TRIAL1= select (chosen, SUBJ, CHI_MLU)
+TRIAL1$SUBJ=as.factor(TRIAL1$SUBJ)
+TRIAL1$CHI_MLU=as.numeric(TRIAL1$CHI_MLU, na.rm = T)
+
+
+#creating a list having all the participants and MLUS as vectors
+dada=lapply(split(TRIAL1[-1], TRIAL1[1]), function(X) unname(unlist(X)))
+#turning that list into a dataframe
+DADA=plyr::ldply(dada, rbind)
+#creating a column containing the mean of each participant (row)
+DADA$mean <- rowMeans( DADA[2:7], na.rm=T)
+#see which are higher than 2.7
+DADA$.id[DADA$mean > 2.7]
+
+
+#less than 1.5 at first visit
+DADA$.id[DADA[2] < 1.5]
+
+#using filter
+#1)
+lmao=group_by(chosen, SUBJ) %>%
+  summarise_each(funs(mean(., na.rm = TRUE)), CHI_MLU)
+one=filter(lmao, CHI_MLU > 2.7)
+
+#2)
+two = filter(chosen, chosen$CHI_MLU> 1.5 & chosen$VISIT == 1)
+two$SUBJ
+
+#3)
+three = filter(chosen, chosen$CHI_MLU%>%is.na)
+three$SUBJ
+
+mao=group_by(chosen,SUBJ) %>%
+  summarise_each(funs(sum(., na.rm = TRUE)), VISIT)
+three=filter(mao,VISIT < 21)
+
+```
+
+USING ARRANGE
+
+1. Sort kids to find the kid who produced the most words on the 6th visit
+2. Sort kids to find the kid who produced the least amount of words on the 1st visit.
+
+```{r}
+arr1=arrange(chosen, desc(VISIT), desc(tokens_CHI) )
+arr2=arrange(chosen, VISIT, tokens_CHI)
+
+```
+
+USING SELECT
+
+1. Make a subset of the data including only kids with ASD, mlu and word tokens
+2. What happens if you include the name of a variable multiple times in a select() call?
+
+```{r}
+sub1 = select(chosen, Diagnosis, CHI_MLU, tokens_CHI)
+sub1 = filter(sub1, chosen$Diagnosis=='ASD')
+
+```
+
+
+USING MUTATE, SUMMARISE and PIPES
+1. Add a column to the data set that represents the mean number of words spoken during all visits.
+2. Use the summarise function and pipes to add an column in the data set containing the mean amount of words produced by each trial across all visits. HINT: group by Child.ID 
+3. The solution to task above enables us to assess the average amount of words produced by each child. Why don't we just use these average values to describe the language production of the children? What is the advantage of keeping all the data?
+
+```{r}
+#1)
+meanofvisits = group_by(chosen, VISIT) %>%
+  summarise_each(funs(mean(. , na.rm= T)), tokens_CHI)
+setnames(meanofvisits, "tokens_CHI","meanpervisits" )
+newchosen=merge(chosen,meanofvisits, all = T)
+#2)
+mean = group_by(chosen, SUBJ) %>%
+  summarise_each(funs(mean(., na.rm=T)), tokens_CHI)
+
+mean$meanWords = mean$tokens_CHI
+mean$tokens_CHI=NULL
+newchosen=merge(chosen, mean, all=T)
+
+```
